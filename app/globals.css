@@ -1,4 +1,14 @@
-@import "tailwindcss";
+/* --- DOĞRU TAILWIND DİREKTİFLERİ --- */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Opsiyonel: HTML ve Body için dark mode geçişini yumuşatma */
+html {
+  scroll-behavior: smooth;
+}
+
+/* --- KENDİ CSS DEĞİŞKENLERİNİZİ VE BODY STİLİNİZİ TAILWIND ALTINA TAŞIYORUZ --- */
 
 :root {
   --background: #ffffff;
@@ -20,7 +30,11 @@
 }
 
 body {
+  /* Tailwind sınıfları yerine kendi değişkenlerinizi kullanıyoruz */
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+
+  /* Daha önce kullandığımız Tailwind sınıfları (Eğer body'de class yoksa sadece bu kalmalı) */
+  /* @apply bg-gray-50 text-gray-900 dark:bg-zinc-900 dark:text-zinc-100; */
 }

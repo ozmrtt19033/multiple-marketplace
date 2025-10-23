@@ -1,3 +1,5 @@
+// prisma/schema.prisma
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -8,22 +10,22 @@ datasource db {
 }
 
 model User {
-  id            String    @id @default(cuid())
-  email         String    @unique
-  name          String?
-  password      String
+  id            String    @id @default(cuid()) @db.VarChar(30)
+  email         String    @unique @db.VarChar(191)
+  name          String?   @db.VarChar(191)
+  password      String    @db.VarChar(255)
   role          UserRole  @default(CUSTOMER)
   emailVerified DateTime?
-  image         String?
+  image         String?   @db.VarChar(500)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
-  
+
   vendor        Vendor?
   orders        Order[]
   addresses     Address[]
   reviews       Review[]
   wishlist      WishlistItem[]
-  
+
   @@map("users")
 }
 
@@ -34,34 +36,35 @@ enum UserRole {
 }
 
 model Vendor {
-  id              String   @id @default(cuid())
-  userId          String   @unique
+  id              String   @id @default(cuid()) @db.VarChar(30)
+  userId          String   @unique @db.VarChar(30)
   user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
-  shopName        String
-  slug            String   @unique
+
+  shopName        String   @db.VarChar(191)
+  slug            String   @unique @db.VarChar(191)
   description     String?  @db.Text
-  logo            String?
-  banner          String?
-  
+  logo            String?  @db.VarChar(500)
+  banner          String?  @db.VarChar(500)
+
   status          VendorStatus @default(PENDING)
   commissionRate  Decimal  @default(10) @db.Decimal(5, 2)
-  
-  phone           String?
+
+  phone           String?  @db.VarChar(20)
   address         String?  @db.Text
-  
+
   totalSales      Decimal  @default(0) @db.Decimal(12, 2)
   totalOrders     Int      @default(0)
   rating          Decimal  @default(0) @db.Decimal(3, 2)
   reviewCount     Int      @default(0)
-  
+
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
-  
+
   products        Product[]
   orders          Order[]
   payouts         Payout[]
-  
+  marketplaceIntegrations MarketplaceIntegration[]
+
   @@map("vendors")
 }
 
@@ -72,73 +75,184 @@ enum VendorStatus {
   REJECTED
 }
 
+// YENİ: Marketplace Entegrasyon Modeli
+model MarketplaceIntegration {
+  id              String   @id @default(cuid()) @db.VarChar(30)
+  vendorId        String   @db.VarChar(30)
+  vendor          Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  marketplace     MarketplaceName
+
+  // API Credentials (Encrypted)
+  apiKey          String?  @db.Text
+  apiSecret       String?  @db.Text
+  sellerId        String?  @db.VarChar(100)
+  merchantId      String?  @db.VarChar(100)
+
+  // Settings
+  isEnabled       Boolean  @default(false)
+  autoSync        Boolean  @default(false)
+  syncInterval    Int      @default(60) // minutes
+
+  // Sync Status
+  lastSyncAt      DateTime?
+  lastSyncStatus  SyncStatus?
+  lastSyncError   String?  @db.Text
+
+  // Statistics
+  totalProducts   Int      @default(0)
+  totalOrders     Int      @default(0)
+  totalSales      Decimal  @default(0) @db.Decimal(12, 2)
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  syncLogs        SyncLog[]
+
+  @@unique([vendorId, marketplace])
+  @@index([marketplace])
+  @@index([isEnabled])
+  @@map("marketplace_integrations")
+}
+
+enum MarketplaceName {
+  TRENDYOL
+  HEPSIBURADA
+  AMAZON
+  N11
+  CICEKSEPETI
+  GITTIGIDIYOR
+  PTTAVM
+  PAZARAMA
+  IDFIX
+  CRON
+  TEKNOSA
+  BEYMEN
+  KOTON
+  VODAFONE
+  COMPANY
+}
+
+enum SyncStatus {
+  SUCCESS
+  FAILED
+  PARTIAL
+  IN_PROGRESS
+}
+
+// YENİ: Sync Log Modeli
+model SyncLog {
+  id                      String   @id @default(cuid()) @db.VarChar(30)
+  marketplaceIntegrationId String  @db.VarChar(30)
+  integration             MarketplaceIntegration @relation(fields: [marketplaceIntegrationId], references: [id], onDelete: Cascade)
+
+  syncType                SyncType
+  status                  SyncStatus
+
+  itemsProcessed          Int      @default(0)
+  itemsSucceeded          Int      @default(0)
+  itemsFailed             Int      @default(0)
+
+  startedAt               DateTime @default(now())
+  completedAt             DateTime?
+  duration                Int?     // seconds
+
+  errorMessage            String?  @db.Text
+  errorDetails            Json?
+
+  @@index([marketplaceIntegrationId])
+  @@index([syncType])
+  @@index([status])
+  @@map("sync_logs")
+}
+
+enum SyncType {
+  PRODUCTS
+  ORDERS
+  STOCK
+  PRICES
+  FULL
+}
+
 model Category {
-  id          String    @id @default(cuid())
-  name        String
-  slug        String    @unique
+  id          String    @id @default(cuid()) @db.VarChar(30)
+  name        String    @db.VarChar(191)
+  slug        String    @unique @db.VarChar(191)
   description String?   @db.Text
-  image       String?
-  parentId    String?
+  image       String?   @db.VarChar(500)
+  parentId    String?   @db.VarChar(30)
   parent      Category? @relation("SubCategories", fields: [parentId], references: [id])
   children    Category[] @relation("SubCategories")
-  
+
   isActive    Boolean   @default(true)
   sortOrder   Int       @default(0)
-  
+
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
-  
+
   products    Product[]
-  
+
   @@map("categories")
 }
 
 model Product {
-  id            String   @id @default(cuid())
-  vendorId      String
+  id            String   @id @default(cuid()) @db.VarChar(30)
+  vendorId      String   @db.VarChar(30)
   vendor        Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
-  
-  categoryId    String
+
+  categoryId    String   @db.VarChar(30)
   category      Category @relation(fields: [categoryId], references: [id])
-  
-  name          String
-  slug          String   @unique
+
+  name          String   @db.VarChar(500)
+  slug          String   @unique @db.VarChar(191)
   description   String   @db.Text
-  
+
   price         Decimal  @db.Decimal(10, 2)
   comparePrice  Decimal? @db.Decimal(10, 2)
   cost          Decimal? @db.Decimal(10, 2)
-  
-  sku           String?  @unique
-  barcode       String?
-  
+
+  sku           String?  @unique @db.VarChar(100)
+  barcode       String?  @db.VarChar(100)
+
   stock         Int      @default(0)
   lowStockAlert Int      @default(5)
-  
+
   weight        Decimal? @db.Decimal(10, 2)
-  dimensions    String?
-  
+  dimensions    String?  @db.VarChar(100)
+
   status        ProductStatus @default(DRAFT)
   isActive      Boolean  @default(true)
   isFeatured    Boolean  @default(false)
-  
+
   viewCount     Int      @default(0)
   soldCount     Int      @default(0)
-  
-  seoTitle      String?
+
+  seoTitle      String?  @db.VarChar(191)
   seoDescription String? @db.Text
-  
+
+  // YENİ: Marketplace Entegrasyon Alanları
+  externalId    String?  @db.VarChar(100) // Marketplace'deki ürün ID
+  marketplace   MarketplaceName? // Hangi marketplace
+  lastSyncAt    DateTime? // Son sync zamanı
+  syncStatus    SyncStatus? // Sync durumu
+  syncError     String?  @db.Text // Hata mesajı
+
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
-  
+
   images        ProductImage[]
   orderItems    OrderItem[]
   reviews       Review[]
   wishlist      WishlistItem[]
-  
+  marketplaceMappings ProductMarketplaceMapping[]
+
+  @@unique([externalId, marketplace])
   @@index([vendorId])
   @@index([categoryId])
   @@index([status])
+  @@index([marketplace])
+  @@index([externalId])
+  @@fulltext([name, description])
   @@map("products")
 }
 
@@ -149,61 +263,100 @@ enum ProductStatus {
   ARCHIVED
 }
 
+// YENİ: Ürün Marketplace Mapping (Bir ürünün birden fazla marketplace'de olması için)
+model ProductMarketplaceMapping {
+  id              String   @id @default(cuid()) @db.VarChar(30)
+  productId       String   @db.VarChar(30)
+  product         Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  marketplace     MarketplaceName
+  externalId      String   @db.VarChar(100) // Marketplace'deki ID
+  externalSku     String?  @db.VarChar(100) // Marketplace'deki SKU
+
+  price           Decimal? @db.Decimal(10, 2) // Marketplace özel fiyat
+  stock           Int?     // Marketplace özel stok
+
+  isActive        Boolean  @default(true)
+  isPublished     Boolean  @default(false)
+
+  lastSyncAt      DateTime?
+  syncStatus      SyncStatus?
+  syncError       String?  @db.Text
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([productId, marketplace])
+  @@unique([externalId, marketplace])
+  @@index([marketplace])
+  @@index([productId])
+  @@map("product_marketplace_mappings")
+}
+
 model ProductImage {
-  id        String  @id @default(cuid())
-  productId String
+  id        String  @id @default(cuid()) @db.VarChar(30)
+  productId String  @db.VarChar(30)
   product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
-  
-  url       String
-  altText   String?
+
+  url       String  @db.VarChar(500)
+  altText   String? @db.VarChar(191)
   sortOrder Int     @default(0)
-  
+
   createdAt DateTime @default(now())
-  
+
   @@index([productId])
   @@map("product_images")
 }
 
 model Order {
-  id              String      @id @default(cuid())
-  orderNumber     String      @unique
-  
-  userId          String
+  id              String      @id @default(cuid()) @db.VarChar(30)
+  orderNumber     String      @unique @db.VarChar(100)
+
+  userId          String      @db.VarChar(30)
   user            User        @relation(fields: [userId], references: [id])
-  
-  vendorId        String
+
+  vendorId        String      @db.VarChar(30)
   vendor          Vendor      @relation(fields: [vendorId], references: [id])
-  
+
   status          OrderStatus @default(PENDING)
   paymentStatus   PaymentStatus @default(PENDING)
-  
+
   subtotal        Decimal     @db.Decimal(10, 2)
   shippingFee     Decimal     @default(0) @db.Decimal(10, 2)
   tax             Decimal     @default(0) @db.Decimal(10, 2)
   discount        Decimal     @default(0) @db.Decimal(10, 2)
   total           Decimal     @db.Decimal(10, 2)
-  
+
   commission      Decimal     @db.Decimal(10, 2)
   vendorEarning   Decimal     @db.Decimal(10, 2)
-  
+
   shippingAddress String      @db.Text
   billingAddress  String?     @db.Text
-  
+
   customerNote    String?     @db.Text
   vendorNote      String?     @db.Text
-  
-  trackingNumber  String?
+
+  trackingNumber  String?     @db.VarChar(100)
   shippedAt       DateTime?
   deliveredAt     DateTime?
-  
+
+  // YENİ: Marketplace Entegrasyon Alanları
+  externalId      String?     @db.VarChar(100) // Marketplace'deki sipariş ID
+  marketplace     MarketplaceName? // Hangi marketplace
+  lastSyncAt      DateTime?   // Son sync zamanı
+  syncStatus      SyncStatus? // Sync durumu
+
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
-  
+
   items           OrderItem[]
-  
+
+  @@unique([externalId, marketplace])
   @@index([userId])
   @@index([vendorId])
   @@index([status])
+  @@index([marketplace])
+  @@index([externalId])
   @@map("orders")
 }
 
@@ -225,61 +378,61 @@ enum PaymentStatus {
 }
 
 model OrderItem {
-  id        String  @id @default(cuid())
-  orderId   String
+  id        String  @id @default(cuid()) @db.VarChar(30)
+  orderId   String  @db.VarChar(30)
   order     Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  
-  productId String
+
+  productId String  @db.VarChar(30)
   product   Product @relation(fields: [productId], references: [id])
-  
+
   quantity  Int
   price     Decimal @db.Decimal(10, 2)
   total     Decimal @db.Decimal(10, 2)
-  
+
   @@index([orderId])
   @@index([productId])
   @@map("order_items")
 }
 
 model Address {
-  id          String  @id @default(cuid())
-  userId      String
+  id          String  @id @default(cuid()) @db.VarChar(30)
+  userId      String  @db.VarChar(30)
   user        User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
-  fullName    String
-  phone       String
-  addressLine String
-  city        String
-  state       String
-  postalCode  String
-  country     String  @default("TR")
-  
+
+  fullName    String  @db.VarChar(191)
+  phone       String  @db.VarChar(20)
+  addressLine String  @db.VarChar(500)
+  city        String  @db.VarChar(100)
+  state       String  @db.VarChar(100)
+  postalCode  String  @db.VarChar(20)
+  country     String  @default("TR") @db.VarChar(5)
+
   isDefault   Boolean @default(false)
-  
+
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
-  
+
   @@index([userId])
   @@map("addresses")
 }
 
 model Review {
-  id        String   @id @default(cuid())
-  userId    String
+  id        String   @id @default(cuid()) @db.VarChar(30)
+  userId    String   @db.VarChar(30)
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
-  productId String
+
+  productId String   @db.VarChar(30)
   product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
-  
+
   rating    Int
   comment   String?  @db.Text
-  
+
   isVerified Boolean @default(false)
   status    ReviewStatus @default(PENDING)
-  
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  
+
   @@index([userId])
   @@index([productId])
   @@unique([userId, productId])
@@ -293,15 +446,15 @@ enum ReviewStatus {
 }
 
 model WishlistItem {
-  id        String   @id @default(cuid())
-  userId    String
+  id        String   @id @default(cuid()) @db.VarChar(30)
+  userId    String   @db.VarChar(30)
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
-  productId String
+
+  productId String   @db.VarChar(30)
   product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
-  
+
   createdAt DateTime @default(now())
-  
+
   @@index([userId])
   @@index([productId])
   @@unique([userId, productId])
@@ -309,20 +462,20 @@ model WishlistItem {
 }
 
 model Payout {
-  id          String       @id @default(cuid())
-  vendorId    String
+  id          String       @id @default(cuid()) @db.VarChar(30)
+  vendorId    String       @db.VarChar(30)
   vendor      Vendor       @relation(fields: [vendorId], references: [id], onDelete: Cascade)
-  
+
   amount      Decimal      @db.Decimal(10, 2)
   status      PayoutStatus @default(PENDING)
-  
-  method      String?
-  reference   String?
+
+  method      String?      @db.VarChar(50)
+  reference   String?      @db.VarChar(191)
   note        String?      @db.Text
-  
+
   requestedAt DateTime     @default(now())
   processedAt DateTime?
-  
+
   @@index([vendorId])
   @@map("payouts")
 }
