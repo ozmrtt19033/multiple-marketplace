@@ -1,22 +1,20 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { Marketplace, LastSyncStatus } from '@prisma/client';
+// Enum'ları TEKRAR import ediyoruz ve KULLANIYORUZ
+import { MarketplaceName, SyncStatus } from '@prisma/client';
 import { z } from 'zod';
-// Olası bir Vendor/Kullanıcı ID'si için oturumu çekelim
 import { getServerSession } from 'next-auth';
-// AuthOptions'ı doğru yoldan çekmelisin
-// Hata vermemesi için şimdilik NextAuth rotasının olduğu yeri varsayıyoruz
 // @ts-ignore
 import { authOptions } from '../../auth/[...nextauth]/route';
+import { invalidateCache } from '@/lib/redis';
 
-// Ayarların doğrulanması için Schema
+// Schema aynı kalabilir
 const integrationSchema = z.object({
     marketplace: z.enum(['TRENDYOL', 'HEPSIBURADA', 'AMAZON', 'ETSY', 'ALIEXPRESS']),
     isEnabled: z.boolean().optional(),
     apiKey: z.string().optional(),
     apiSecret: z.string().optional(),
     sellerId: z.string().optional(),
-    // Diğer ayarları buraya ekleyin
 });
 
 /**
@@ -27,7 +25,6 @@ export async function GET() {
         const integrations = await prisma.marketplaceIntegration.findMany({
             orderBy: { marketplace: 'asc' },
         });
-
         return NextResponse.json(integrations);
     } catch (error) {
         console.error('Entegrasyon Ayarlarını Getirme Hatası:', error);
@@ -40,11 +37,11 @@ export async function GET() {
 
 /**
  * POST - Yeni bir entegrasyon ayarı oluşturur veya günceller.
- * @param request Body'de entegrasyon ayarlarını içerir.
  */
 export async function POST(request: Request) {
+    let vendorId: string;
+
     try {
-        // Oturumu kontrol et ve Vendor ID'yi çek
         const session = await getServerSession(authOptions);
 
         if (!session || !session.user || !session.user.vendorId) {
@@ -53,46 +50,27 @@ export async function POST(request: Request) {
                 { status: 401 }
             );
         }
-
-        const vendorId = session.user.vendorId as string; // VendorId'nin string olduğunu varsayıyoruz
+        vendorId = session.user.vendorId as string;
 
         const body = await request.json();
-
-        // 1. Veriyi Doğrula
         const validatedData = integrationSchema.parse(body);
-
+        // MarketplaceName Enum'unu kullanıyoruz
+        const marketplaceEnum = validatedData.marketplace as MarketplaceName;
         const { marketplace, ...data } = validatedData;
 
-        // 2. Güncellenecek veriyi filtrele ve dönüştür
         const updateData: Record<string, any> = {};
-        let processedSellerId: number | undefined;
+        let processedSellerId: string | undefined;
 
-        // Seller ID'yi özel olarak ele al: String'i Int'e çevir
-        if (data.sellerId && data.sellerId.length > 0) {
-            const parsedSellerId = parseInt(data.sellerId, 10);
-
-            if (isNaN(parsedSellerId) || parsedSellerId <= 0) {
-                return NextResponse.json(
-                    { success: false, message: 'Satıcı ID geçerli bir pozitif sayı olmalıdır.' },
-                    { status: 400 }
-                );
-            }
-            processedSellerId = parsedSellerId;
+        if (data.sellerId && data.sellerId.trim().length > 0) {
+            processedSellerId = data.sellerId.trim();
         }
 
-        // Diğer alanları filtrele
         for (const key in data) {
             const value = data[key as keyof typeof data];
+            if (key === 'sellerId') continue;
 
-            if (key === 'sellerId') {
-                continue;
-            }
-
-            // undefined, null veya boş stringleri yok say
             if (value !== undefined && value !== null) {
-                if (typeof value === 'string' && value.trim() === '') {
-                    continue;
-                }
+                if (typeof value === 'string' && value.trim() === '') continue;
                 updateData[key] = value;
             }
         }
@@ -105,70 +83,55 @@ export async function POST(request: Request) {
         // 3. MarketplaceIntegration tablosunu 'upsert' ile kullan
         const integration = await prisma.marketplaceIntegration.upsert({
             where: {
-                // vendorId ve marketplace ikilisi unique olmalı, yoksa sadece marketplace'i kullan
-                // Şemanızdaki unique kısıtlamasına göre burayı ayarlayın
-                marketplace_vendorId: {
-                    marketplace: marketplace as Marketplace,
+                vendorId_marketplace: {
+                    marketplace: marketplaceEnum, // Enum kullanılıyor
                     vendorId: vendorId,
                 }
             },
-
-            // UPDATE:
             update: {
                 ...updateData,
-                // lastSyncStatus hatası düzeltildi: doğrudan string kullanılıyor
-                lastSyncStatus: 'PENDING',
-                lastErrorMessage: null,
+                // --- Enum Kullanımı Geri Geldi ---
+                lastSyncStatus: SyncStatus.PENDING,
+                lastSyncError: null, // Şemadaki doğru alan adı
             },
-
-            // CREATE:
             create: {
-                marketplace: marketplace as Marketplace,
-                vendorId: vendorId, // BURASI KRİTİK: Vendor ID'yi CREATE'e ekledik
-
-                ...updateData,
-
+                marketplace: marketplaceEnum, // Enum kullanılıyor
+                vendorId: vendorId,
                 apiKey: updateData.apiKey || '',
                 apiSecret: updateData.apiSecret || '',
-                sellerId: processedSellerId || 0,
+                sellerId: processedSellerId || '',
                 isEnabled: updateData.isEnabled !== undefined ? updateData.isEnabled : false,
-
-                // lastSyncStatus hatası düzeltildi: doğrudan string kullanılıyor
-                lastSyncStatus: 'PENDING',
-                lastSyncDate: new Date(),
-                productCount: 0,
+                // --- Enum Kullanımı Geri Geldi ---
+                lastSyncStatus: SyncStatus.PENDING,
+                lastSyncAt: new Date(), // Şemadaki doğru alan adı
+                totalProducts: 0, // Şemadaki doğru alan adı
             },
         });
+
+        await invalidateCache('integrations:*');
+        console.log(`🧹 Cache invalidated for pattern: integrations:*`);
 
         return NextResponse.json(
             {
                 success: true,
-                message: `${marketplace} entegrasyon ayarları başarıyla kaydedildi.`,
+                message: `${marketplaceEnum} entegrasyon ayarları başarıyla kaydedildi.`,
                 integration,
             },
             { status: 200 }
         );
-    } catch (error) {
+    } catch (error: any) {
         console.error('Entegrasyon Kaydetme Hatası:', error);
 
         if (error instanceof z.ZodError) {
-            return NextResponse.json(
-                {
-                    success: false,
-                    message: 'Geçersiz veri formatı.',
-                    errors: error.errors.map(err => ({
-                        field: err.path.join('.'),
-                        message: err.message
-                    }))
-                },
-                { status: 400 }
-            );
+            return NextResponse.json({ success: false, message: 'Geçersiz veri formatı (Zod).', errors: error.errors }, { status: 400 });
         }
 
-        // Genel hata
-        return NextResponse.json(
-            { success: false, message: 'Entegrasyon ayarları kaydedilirken beklenmeyen bir hata oluştu. Lütfen sunucu loglarını kontrol edin.' },
-            { status: 500 }
-        );
+        let errorMessage = error.message;
+        if (error.code) {
+            errorMessage = `Prisma Hata Kodu ${error.code}: ${error.message}`;
+        }
+
+        return NextResponse.json({ success: false, message: 'Entegrasyon ayarları kaydedilirken hata oluştu.', errorDetail: errorMessage }, { status: 500 });
     }
 }
+
